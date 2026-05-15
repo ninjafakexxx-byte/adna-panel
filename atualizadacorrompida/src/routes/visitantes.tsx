@@ -1,168 +1,372 @@
-import { formatDateBR, formatDateTimeBR } from "@/lib/utils";
 import { createFileRoute } from "@tanstack/react-router";
-import { Hand, Plus } from "lucide-react";
+
+import {
+  Users,
+  UserPlus,
+  Search,
+  Pencil,
+  Trash2,
+  UserCheck,
+  UserX,
+} from "lucide-react";
+
+import { useMemo, useState } from "react";
+
 import { motion } from "framer-motion";
-import { useEffect, useState } from "react";
-import { z } from "zod";
+
 import { PageHeader } from "@/components/layout/PageHeader";
-import { DataTable, Column } from "@/components/data/DataTable";
-import { CrudFormDialog, FieldDef } from "@/components/data/CrudFormDialog";
+
+import { Button } from "@/components/ui/button";
+
+import { Input } from "@/components/ui/input";
+
+import { StatCard } from "@/components/dashboard/StatCard";
+
 import { ConfirmDialog } from "@/components/data/ConfirmDialog";
-import { useSupabaseTable, Row } from "@/hooks/use-supabase-table";
-import { ExportMenu } from "@/components/data/ExportMenu";
-import { useAuth } from "@/hooks/use-auth";
+
 import { RoleGuard } from "@/components/auth/RoleGuard";
 
-export const Route = createFileRoute("/visitantes")({
-  component: VisitantesPage,
-  head: () => ({ meta: [{ title: "Visitantes — ADNA" }] }),
-});
+import {
+  useVisitors,
+  useVisitorsKpis,
+  type Visitor,
+} from "@/hooks/use-visitors";
 
-const schema = z.object({
-  nome: z.string().trim().min(2, "Nome deve ter ao menos 2 caracteres").max(120),
-  grupo: z.string().trim().max(60).optional().or(z.literal("")),
-});
+import { VisitorFormDialog } from "@/components/visitors/VisitorFormDialog";
 
-const fields: FieldDef[] = [
-  { name: "nome", label: "Nome", placeholder: "Nome do visitante" },
-  { name: "grupo", label: "Grupo", placeholder: "Ex.: Convidado, Família…" },
-];
+import { useAuth } from "@/hooks/use-auth";
 
-const cols: Column<Row>[] = [
-  {
-    key: "nome",
-    header: "Nome",
-    sortable: true,
-    render: (r) => (
-      <div className="flex items-center gap-3">
-        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-[color:var(--brand-green)] to-[color:var(--brand-green-glow)] text-xs font-bold text-white">
-          {String(r.nome ?? "?").slice(0, 1).toUpperCase()}
-        </div>
-        <span className="font-medium">{r.nome ?? "—"}</span>
-      </div>
-    ),
-  },
-  {
-    key: "grupo",
-    header: "Grupo",
-    sortable: true,
-    render: (r) => (
-      <span className="rounded-full border border-[color:var(--brand-green)]/30 bg-[color:var(--brand-green)]/10 px-2.5 py-0.5 text-xs font-medium text-[color:var(--brand-green-glow)]">
-        {r.grupo ?? "Sem grupo"}
-      </span>
-    ),
-  },
-  {
-    key: "created_at",
-    header: "Visitou em",
-    sortable: true,
-    render: (r) => formatDateBR(r.created_at),
-  },
-];
+export const Route =
+  createFileRoute("/visitantes")({
+    component: VisitantesPage,
+  });
 
 function VisitantesPage() {
   return (
-    <RoleGuard roles={["lider", "admin"]}>
+    <RoleGuard
+      roles={["lider", "admin"]}
+    >
       <VisitantesInner />
     </RoleGuard>
   );
 }
 
 function VisitantesInner() {
-  const { rows, loading, insert, update, remove } = useSupabaseTable("visitantes");
-  const { isAdmin, isLider } = useAuth();
-  const canCreate = isLider;
-  const canDelete = isAdmin;
-  const [formOpen, setFormOpen] = useState(false);
-  const [editing, setEditing] = useState<Row | null>(null);
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [deleting, setDeleting] = useState<Row | null>(null);
+  const {
+    rows,
+    loading,
+    insert,
+    update,
+    remove,
+    toggleActive,
+  } = useVisitors();
 
-  useEffect(() => {
-    if (typeof window === "undefined" || !canCreate) return;
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("new") === "1") {
-      setEditing(null);
-      setFormOpen(true);
-      params.delete("new");
-      const qs = params.toString();
-      window.history.replaceState({}, "", window.location.pathname + (qs ? `?${qs}` : ""));
-    }
-  }, [canCreate]);
+  const kpis =
+    useVisitorsKpis(rows);
+
+  const { isAdmin, isLider } =
+    useAuth();
+
+  const canEdit = isLider;
+  const canDelete = isAdmin;
+
+  const [query, setQuery] =
+    useState("");
+
+  const [formOpen, setFormOpen] =
+    useState(false);
+
+  const [editing, setEditing] =
+    useState<Visitor | null>(null);
+
+  const [
+    confirmOpen,
+    setConfirmOpen,
+  ] = useState(false);
+
+  const [deleting, setDeleting] =
+    useState<Visitor | null>(null);
+
+  const filtered = useMemo(() => {
+    const q =
+      query.trim().toLowerCase();
+
+    if (!q) return rows;
+
+    return rows.filter((v) => {
+      const hay = [
+        v.full_name,
+        v.email,
+        v.phone,
+        v.city,
+        v.invited_by,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      return hay.includes(q);
+    });
+  }, [rows, query]);
+
+  const openNew = () => {
+    setEditing(null);
+    setFormOpen(true);
+  };
+
+  const openEdit = (
+    v: Visitor,
+  ) => {
+    setEditing(v);
+    setFormOpen(true);
+  };
+
+  const askDelete = (
+    v: Visitor,
+  ) => {
+    setDeleting(v);
+    setConfirmOpen(true);
+  };
 
   return (
-    <div className="mx-auto max-w-7xl space-y-5">
+    <div className="space-y-6">
       <PageHeader
+        icon={
+          <Users className="h-5 w-5 text-white" />
+        }
         title="Visitantes"
-        subtitle={`${rows.length} visitantes registrados`}
-        accent="green"
-        icon={<Hand className="h-6 w-6" />}
+        subtitle="Controle e acompanhamento dos visitantes"
         actions={
-          <div className="flex flex-wrap items-center gap-2">
-            {canCreate && (
-              <ExportMenu
-                rows={rows.map((r) => ({ Nome: r.nome, Grupo: r.grupo, Visitou: formatDateTimeBR(r.created_at) }))}
-                filename="visitantes"
-                title="Lista de Visitantes"
-              />
-            )}
-            {canCreate && (
-              <button
-                onClick={() => {
-                  setEditing(null);
-                  setFormOpen(true);
-                }}
-                className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-[color:var(--brand-green)] to-[color:var(--brand-green-glow)] px-4 py-2 text-sm font-medium text-white shadow-[var(--shadow-glow-green)] hover:opacity-90 transition"
-              >
-                <Plus className="h-4 w-4" /> Novo visitante
-              </button>
-            )}
-          </div>
+          <Button
+            onClick={openNew}
+            className="bg-gradient-to-r from-[color:var(--brand-blue)] to-[color:var(--brand-blue-glow)] text-white"
+          >
+            <UserPlus className="mr-2 h-4 w-4" />
+            Novo visitante
+          </Button>
         }
       />
-      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.1 }}>
-        <DataTable
-          rows={rows}
-          columns={cols}
-          loading={loading}
-          searchKeys={["nome", "grupo"]}
-          filterKey="grupo"
-          onEdit={(r) => {
-            setEditing(r);
-            setFormOpen(true);
-          }}
-          onDelete={(r) => {
-            setDeleting(r);
-            setConfirmOpen(true);
-          }}
-          canEdit={canCreate}
-          canDelete={canDelete}
-        />
-      </motion.div>
 
-      <CrudFormDialog
+      {/* KPIs */}
+
+      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard
+          title="Total"
+          value={kpis.total}
+          variant="blue"
+          icon={
+            <Users className="h-6 w-6 text-white" />
+          }
+        />
+
+        <StatCard
+          title="Ativos"
+          value={kpis.ativos}
+          variant="green"
+          icon={
+            <UserCheck className="h-6 w-6 text-white" />
+          }
+        />
+
+        <StatCard
+          title="Convertidos"
+          value={kpis.convertidos}
+          variant="amber"
+          icon={
+            <UserPlus className="h-6 w-6 text-white" />
+          }
+        />
+
+        <StatCard
+          title="Novos (30d)"
+          value={kpis.novos30}
+          variant="red"
+          icon={
+            <Users className="h-6 w-6 text-white" />
+          }
+        />
+      </section>
+
+      {/* Busca */}
+
+      <div className="rounded-2xl border border-border bg-card/60 p-4">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+
+          <Input
+            value={query}
+            onChange={(e) =>
+              setQuery(
+                e.target.value,
+              )
+            }
+            placeholder="Buscar visitante..."
+            className="pl-9"
+          />
+        </div>
+      </div>
+
+      {/* Table */}
+
+      <div className="overflow-hidden rounded-2xl border border-border bg-card/60">
+        <table className="w-full text-sm">
+          <thead className="bg-background/40 text-xs uppercase text-muted-foreground">
+            <tr>
+              <th className="px-4 py-3 text-left">
+                Nome
+              </th>
+
+              <th className="px-4 py-3 text-left">
+                Contato
+              </th>
+
+              <th className="px-4 py-3 text-left">
+                Cidade
+              </th>
+
+              <th className="px-4 py-3 text-left">
+                Status
+              </th>
+
+              <th className="px-4 py-3 text-right">
+                Ações
+              </th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {!loading &&
+              filtered.map((v) => (
+                <motion.tr
+                  key={v.id}
+                  initial={{
+                    opacity: 0,
+                    y: 4,
+                  }}
+                  animate={{
+                    opacity: 1,
+                    y: 0,
+                  }}
+                  className="border-t border-border/50"
+                >
+                  <td className="px-4 py-3">
+                    <div>
+                      <p className="font-medium">
+                        {v.full_name}
+                      </p>
+
+                      <p className="text-xs text-muted-foreground">
+                        {
+                          v.invited_by
+                        }
+                      </p>
+                    </div>
+                  </td>
+
+                  <td className="px-4 py-3 text-xs">
+                    <p>{v.email}</p>
+                    <p>{v.phone}</p>
+                  </td>
+
+                  <td className="px-4 py-3">
+                    {v.city}
+                  </td>
+
+                  <td className="px-4 py-3">
+                    <button
+                      onClick={() =>
+                        toggleActive(v)
+                      }
+                      disabled={
+                        !canEdit
+                      }
+                      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs ${
+                        v.is_active
+                          ? "bg-emerald-500/10 text-emerald-300"
+                          : "bg-zinc-500/10 text-zinc-400"
+                      }`}
+                    >
+                      {v.is_active ? (
+                        <UserCheck className="h-3 w-3" />
+                      ) : (
+                        <UserX className="h-3 w-3" />
+                      )}
+
+                      {v.is_active
+                        ? "Ativo"
+                        : "Inativo"}
+                    </button>
+                  </td>
+
+                  <td className="px-4 py-3">
+                    <div className="flex justify-end gap-1">
+                      <button
+                        onClick={() =>
+                          openEdit(v)
+                        }
+                        className="rounded-md p-1.5 hover:bg-accent"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </button>
+
+                      {canDelete && (
+                        <button
+                          onClick={() =>
+                            askDelete(v)
+                          }
+                          className="rounded-md p-1.5 hover:bg-destructive/10"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </motion.tr>
+              ))}
+          </tbody>
+        </table>
+      </div>
+
+      <VisitorFormDialog
         open={formOpen}
-        onOpenChange={setFormOpen}
-        title={editing ? "Editar visitante" : "Novo visitante"}
-        description={editing ? "Atualize os dados do visitante." : "Registre um novo visitante."}
-        fields={fields}
-        schema={schema}
-        initialValues={editing ?? undefined}
-        accentClass="bg-gradient-to-r from-[color:var(--brand-green)] to-[color:var(--brand-green-glow)]"
-        onSubmit={async (values) => {
-          const payload = { nome: values.nome, grupo: values.grupo || null };
-          if (editing) await update(editing.id, payload);
-          else await insert(payload);
+        onOpenChange={
+          setFormOpen
+        }
+        initial={editing}
+        onSubmit={async (
+          values,
+        ) => {
+          if (editing) {
+            await update(
+              editing.id,
+              values,
+            );
+          } else {
+            await insert(values);
+          }
         }}
       />
 
       <ConfirmDialog
         open={confirmOpen}
-        onOpenChange={setConfirmOpen}
+        onOpenChange={
+          setConfirmOpen
+        }
         title="Excluir visitante?"
-        description={`Tem certeza que deseja excluir "${deleting?.nome ?? ""}"? Esta ação não pode ser desfeita.`}
+        description={
+          deleting
+            ? `O visitante "${deleting.full_name}" será removido.`
+            : ""
+        }
+        confirmLabel="Excluir"
         onConfirm={async () => {
-          if (deleting) await remove(deleting.id);
+          if (deleting) {
+            await remove(
+              deleting.id,
+            );
+          }
+
+          setDeleting(null);
         }}
       />
     </div>
